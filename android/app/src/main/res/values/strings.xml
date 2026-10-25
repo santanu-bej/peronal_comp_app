@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Goal Compass</string>
+    <string name="add_todo">Add todo</string>
+    <string name="guard_service_description">Shows reminders and nudges over other apps, blocks Shorts/Reels, and records which app and video you are on so Goal Compass can track your time. It never reads messages, text fields or notifications.</string>
+    <string name="focus_tile">Focus session</string>
+</resources>
