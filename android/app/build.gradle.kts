@@ -50,6 +50,7 @@ android {
         release {
             // Signed with key.properties when present (keep it outside git); otherwise the debug key.
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
