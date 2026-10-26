@@ -23,20 +23,24 @@ void main() {
   TodoRepo makeTodos({bool key = true}) {
     final client = MockClient((req) async {
       aiCalls++;
-      final items = (jsonDecode(jsonDecode(req.body)['messages'][0]['content']) as Map)['items'] as List;
+      final items = (jsonDecode(jsonDecode(req.body)['contents'][0]['parts'][0]['text']) as Map)['items'] as List;
       return http.Response(
           jsonEncode({
-            'content': [
+            'candidates': [
               {
-                'type': 'tool_use',
-                'name': 'save_scores',
-                'input': {
-                  'r': [for (final i in items) {'i': i['i'], 's': 61, 'g': 'G1', 'why': 'ai says so'}]
-                }
+                'content': {
+                  'parts': [
+                    {
+                      'text': jsonEncode({
+                        'r': [for (final i in items) {'i': i['i'], 's': 61, 'g': 'G1', 'why': 'ai says so'}]
+                      })
+                    }
+                  ]
+                },
+                'finishReason': 'STOP',
               }
             ],
-            'stop_reason': 'tool_use',
-            'usage': {'input_tokens': 100, 'output_tokens': 50},
+            'usageMetadata': {'promptTokenCount': 100, 'candidatesTokenCount': 50},
           }),
           200);
     });
@@ -123,7 +127,7 @@ void main() {
     var calls = 0;
     final client = MockClient((_) async {
       calls++;
-      return http.Response(jsonEncode({'content': [{'type': 'tool_use', 'name': 'save_digest', 'input': {'digest': 'd$calls'}}], 'stop_reason': 'tool_use', 'usage': {'input_tokens': 1, 'output_tokens': 1}}), 200);
+      return http.Response(jsonEncode({'candidates': [{'content': {'parts': [{'text': jsonEncode({'digest': 'd$calls'})}]}, 'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 1, 'candidatesTokenCount': 1}}), 200);
     });
     final f = AiFeatures(AiClient(db: db, client: client, keyProvider: () async => 'k', sleep: (_) async {}));
     final now = DateTime.now().millisecondsSinceEpoch;

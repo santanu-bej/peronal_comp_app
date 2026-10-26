@@ -128,7 +128,7 @@ class AiFeatures {
     );
     final res = parsePlan(r.value, todayMs: today, deadlineMs: deadlineMs, tokens: r.usage.total);
     if (res.stages.isEmpty) {
-      throw const AiException('Claude returned an empty plan. Tap retry.', retryable: true);
+      throw const AiException('The AI returned an empty plan. Tap retry.', retryable: true);
     }
     return res;
   }

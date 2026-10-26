@@ -25,5 +25,17 @@ jobs:
             echo "::error title=APK build failed::${msg}"
           fi
           exit $code
+      - name: Inspect APK (min Android version, ABIs, signature)
+        shell: bash
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          {
+            echo "size: $(du -h $APK | cut -f1)"
+            $BT/aapt2 dump badging $APK | grep -E "^package:|sdkVersion|targetSdkVersion|native-code"
+            $BT/apksigner verify --verbose --print-certs $APK 2>&1 | head -8
+          } | tee apk-info.txt
+          msg=$(sed 's/%/%25/g' apk-info.txt | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=APK info::${msg}"
       - uses: actions/upload-artifact@v4
         with: { name: goal-compass-apk, path: build/app/outputs/flutter-apk/app-release.apk }

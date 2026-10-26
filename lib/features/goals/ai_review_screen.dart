@@ -176,7 +176,7 @@ class _S extends ConsumerState<AiReviewScreen> {
         const SizedBox(height: 80),
         Center(child: CircularProgressIndicator(color: c.primary)),
         const SizedBox(height: 16),
-        Center(child: Text(widget.replan ? 'Asking Claude for the smallest fix…' : 'Claude is planning your goal…', style: t.bodyMedium)),
+        Center(child: Text(widget.replan ? 'Asking the AI for the smallest fix…' : 'Planning your goal with AI…', style: t.bodyMedium)),
       ]);
     }
     if (_error != null && _plan == null && _re == null) {

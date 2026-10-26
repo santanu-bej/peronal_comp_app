@@ -9,16 +9,26 @@ import 'package:goal_compass/core/utils/time.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-http.Response toolResp(Map<String, dynamic> input, {int inTok = 400, int outTok = 300, String stop = 'tool_use'}) => http.Response(
+http.Response toolResp(Map<String, dynamic> input, {int inTok = 400, int outTok = 300, String stop = 'STOP'}) => http.Response(
       jsonEncode({
-        'content': [
-          {'type': 'tool_use', 'name': 'x', 'input': input}
+        'candidates': [
+          {
+            'content': {
+              'parts': [
+                {'text': jsonEncode(input)}
+              ]
+            },
+            'finishReason': stop,
+          }
         ],
-        'stop_reason': stop,
-        'usage': {'input_tokens': inTok, 'output_tokens': outTok},
+        'usageMetadata': {'promptTokenCount': inTok, 'candidatesTokenCount': outTok},
       }),
       200,
     );
+
+/// The user JSON the client put into `contents[0].parts[0].text`.
+Map<String, dynamic> sentUser(http.Request req) =>
+    jsonDecode(((jsonDecode(req.body) as Map)['contents'][0]['parts'][0]['text']) as String) as Map<String, dynamic>;
 
 void main() {
   late AppDb db;
@@ -35,10 +45,16 @@ void main() {
     var calls = 0;
     final c = MockClient((req) async {
       calls++;
-      expect(req.headers['x-api-key'], 'sk-test');
+      expect(req.headers['x-goog-api-key'], 'sk-test');
+      expect(req.url.path, endsWith('/gemini-2.5-flash:generateContent'));
       final b = jsonDecode(req.body) as Map;
-      expect(b['tool_choice'], {'type': 'tool', 'name': 'save_plan'});
-      expect(b['max_tokens'], 1400);
+      final g = b['generationConfig'] as Map;
+      expect(g['maxOutputTokens'], 1400);
+      expect(g['responseMimeType'], 'application/json');
+      expect(g['thinkingConfig'], {'thinkingBudget': 0});
+      final schema = g['responseSchema'] as Map;
+      expect(schema['required'], ['stages', 'todos', 'digest']);
+      expect(jsonEncode(schema), isNot(contains('maxLength')));
       return toolResp({
         'stages': [
           {'t': 'Late', 'due': '2030-01-01', 'w': 30, 'done_when': 'x'},
@@ -126,7 +142,7 @@ void main() {
     var n = 0;
     final c = MockClient((req) async {
       n++;
-      final items = (jsonDecode(jsonDecode(req.body)['messages'][0]['content']) as Map)['items'] as List;
+      final items = sentUser(req)['items'] as List;
       return toolResp({
         'r': [for (final i in items) {'i': i['i'], 's': 50, 'g': null, 'why': 'ok'}]
       });
@@ -162,7 +178,7 @@ void main() {
     var n = 0;
     final c = MockClient((_) async {
       n++;
-      return toolResp({'r': [{'i': 0, 's': 50, 'g': null, 'why': 'a'}]}, stop: 'max_tokens');
+      return toolResp({'r': [{'i': 0, 's': 50, 'g': null, 'why': 'a'}]}, stop: 'MAX_TOKENS');
     });
     final f = AiFeatures(make(c));
     await f.align([(title: 'x', estimateMin: 30)], ['d']);
@@ -199,12 +215,34 @@ void main() {
     expect(offline[0].rough, false);
   });
 
-  test('testKey', () async {
+  test('testKey is a free metadata GET', () async {
     final ok = MockClient((req) async {
-      expect((jsonDecode(req.body) as Map)['max_tokens'], 1);
+      expect(req.method, 'GET');
+      expect(req.url.path, endsWith('/models/gemini-2.5-flash-lite'));
       return http.Response('{}', 200);
     });
     expect(await make(ok).testKey('k'), null);
-    expect(await make(MockClient((_) async => http.Response('', 401))).testKey('k'), contains('rejected'));
+    expect(await make(MockClient((_) async => http.Response('', 403))).testKey('k'), contains('rejected'));
+    expect(await make(MockClient((_) async => http.Response('', 404))).testKey('k', model: 'nope'), contains('nope'));
+  });
+
+  test('400 API_KEY_INVALID is reported as key rejected', () async {
+    final c = MockClient((_) async => http.Response('{"error":{"details":[{"reason":"API_KEY_INVALID"}]}}', 400));
+    try {
+      await AiFeatures(make(c)).digest(goal: 'g', why: '', deadlineMs: deadline, stages: [], pct: 0);
+      fail('should throw');
+    } on AiException catch (e) {
+      expect(e.keyRejected, true);
+    }
+  });
+
+  test('schema converter: nullable types, no maxLength', () {
+    final s = toGeminiSchema({
+      'type': 'object',
+      'properties': {
+        'g': {'type': ['string', 'null'], 'maxLength': 5},
+      },
+    });
+    expect((s['properties'] as Map)['g'], {'type': 'string', 'nullable': true});
   });
 }

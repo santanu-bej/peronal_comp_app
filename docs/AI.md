@@ -1,3 +1,5 @@
+> **Provider change:** the app now calls the Google Gemini API (free tier) instead of Claude. Same prompts, JSON schemas, token budgets, caching and local-first rules; the request/response shape is in `lib/core/ai/ai_client.dart` (`responseSchema` structured output, `x-goog-api-key`). Default models: `gemini-2.5-flash` (plan, replan) and `gemini-2.5-flash-lite` (the rest). Where this file says Claude/tool_use, read Gemini/JSON response.
+
 # AI — Claude API usage with minimum tokens
 
 The app calls the Claude Messages API directly from the phone with the user's own API key.

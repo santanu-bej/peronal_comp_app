@@ -25,7 +25,7 @@ final secretsProvider = Provider((ref) => Secrets());
 final aiClientProvider = Provider((ref) => AiClient(
       db: ref.watch(dbProvider),
       client: http.Client(),
-      keyProvider: ref.watch(secretsProvider).claudeKey,
+      keyProvider: ref.watch(secretsProvider).aiKey,
     ));
 final aiFeaturesProvider = Provider((ref) => AiFeatures(ref.watch(aiClientProvider)));
 

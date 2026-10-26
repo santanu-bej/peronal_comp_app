@@ -31,19 +31,43 @@ class AiResult<T> {
   const AiResult(this.value, this.usage, {this.fromCache = false, this.truncated = false});
 }
 
+/// Gemini free-tier models. Flash for the two user-facing planning calls, Flash-Lite for the small ones.
 const defaultModels = {
-  'plan': 'claude-sonnet-5-5',
-  'digest': 'claude-haiku-5-5',
-  'align': 'claude-haiku-5-5',
-  'replan': 'claude-sonnet-5-5',
-  'classify': 'claude-haiku-5-5',
-  'review': 'claude-haiku-5-5',
+  'plan': 'gemini-2.5-flash',
+  'digest': 'gemini-2.5-flash-lite',
+  'align': 'gemini-2.5-flash-lite',
+  'replan': 'gemini-2.5-flash',
+  'classify': 'gemini-2.5-flash-lite',
+  'review': 'gemini-2.5-flash-lite',
 };
+
+const _base = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/// Gemini's responseSchema is an OpenAPI subset: drop unsupported keys, turn ["x","null"] into nullable.
+Map<String, dynamic> toGeminiSchema(Map<String, dynamic> s) {
+  const keep = {'type', 'properties', 'required', 'items', 'enum', 'description', 'minItems', 'maxItems', 'minimum', 'maximum', 'nullable'};
+  final out = <String, dynamic>{};
+  s.forEach((k, v) {
+    if (!keep.contains(k)) return;
+    if (k == 'type' && v is List) {
+      final types = v.where((t) => t != 'null').toList();
+      out['type'] = types.first;
+      if (v.contains('null')) out['nullable'] = true;
+    } else if (k == 'properties') {
+      out[k] = (v as Map).map((pk, pv) => MapEntry(pk as String, toGeminiSchema(Map<String, dynamic>.from(pv as Map))));
+    } else if (k == 'items') {
+      out[k] = toGeminiSchema(Map<String, dynamic>.from(v as Map));
+    } else {
+      out[k] = v;
+    }
+  });
+  return out;
+}
 
 /// Per-feature cache TTL in days. null = never cached.
 const _cacheTtl = <String, int?>{'align': 180, 'classify': 180, 'digest': 3650, 'review': 7};
 
-/// The only file that talks to the Claude API.
+/// The only file that talks to the AI API (Google Gemini).
 class AiClient {
   final AppDb db;
   final http.Client _http;
@@ -89,7 +113,7 @@ class AiClient {
   }) async {
     final key = await keyProvider();
     if ((await db.getSetting<bool>('ai.off')) == true || key == null || key.isEmpty) {
-      throw const AiException('AI is off. Add a Claude key in Settings → AI.');
+      throw const AiException('AI is off. Add a Gemini key in Settings → AI.');
     }
 
     final ttl = _cacheTtl[feature];
@@ -109,25 +133,36 @@ class AiClient {
       }
     }
 
+    final isFlash = model.contains('flash');
     final body = jsonEncode({
-      'model': model,
-      'max_tokens': maxTokens,
-      'temperature': 0.2,
-      'system': [
-        {'type': 'text', 'text': system, if (cacheSystem) 'cache_control': {'type': 'ephemeral'}}
+      'systemInstruction': {
+        'parts': [
+          {'text': system}
+        ]
+      },
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': userContent}
+          ]
+        }
       ],
-      'tools': [tool],
-      'tool_choice': {'type': 'tool', 'name': tool['name']},
-      'messages': [
-        {'role': 'user', 'content': userContent}
-      ],
+      'generationConfig': {
+        'temperature': 0.2,
+        'maxOutputTokens': maxTokens,
+        'responseMimeType': 'application/json',
+        'responseSchema': toGeminiSchema(Map<String, dynamic>.from(tool['input_schema'] as Map)),
+        // no hidden "thinking" tokens on Flash models: keeps the token budget honest
+        if (isFlash) 'thinkingConfig': {'thinkingBudget': 0},
+      },
     });
 
     http.Response res;
     try {
-      res = await _post(key, body, timeout);
+      res = await _post(key, model, body, timeout);
     } on TimeoutException {
-      throw const AiException('Claude took too long. Tap retry.', retryable: true);
+      throw const AiException('The AI took too long. Tap retry.', retryable: true);
     } on http.ClientException {
       throw const AiException('No internet. Your input is kept. Tap retry.', retryable: true);
     } on AiException {
@@ -137,50 +172,58 @@ class AiClient {
     }
 
     final json = jsonDecode(res.body) as Map<String, dynamic>;
-    final u = (json['usage'] as Map?) ?? {};
+    final u = (json['usageMetadata'] as Map?) ?? {};
     final usage = AiUsageInfo(
-      (u['input_tokens'] ?? 0) as int,
-      (u['output_tokens'] ?? 0) as int,
-      (u['cache_read_input_tokens'] ?? 0) as int,
-      (u['cache_creation_input_tokens'] ?? 0) as int,
+      (u['promptTokenCount'] ?? 0) as int,
+      ((u['candidatesTokenCount'] ?? 0) as int) + ((u['thoughtsTokenCount'] ?? 0) as int),
+      (u['cachedContentTokenCount'] ?? 0) as int,
+      0,
     );
     await _recordUsage(feature, model, usage);
 
-    final blocks = (json['content'] as List?) ?? [];
-    final block = blocks.cast<Map>().firstWhere((b) => b['type'] == 'tool_use', orElse: () => {});
-    if (block.isEmpty) {
-      throw const AiException('Claude returned no result. Tap retry.', retryable: true);
+    final cands = (json['candidates'] as List?) ?? [];
+    final cand = cands.isEmpty ? null : cands.first as Map;
+    final parts = ((cand?['content'] as Map?)?['parts'] as List?) ?? [];
+    final text = parts.whereType<Map>().map((p) => p['text']).whereType<String>().join();
+    if (text.isEmpty) {
+      throw const AiException('The AI returned no result. Tap retry.', retryable: true);
     }
-    final input = Map<String, dynamic>.from(block['input'] as Map);
-    final truncated = json['stop_reason'] == 'max_tokens';
+    Map<String, dynamic> input;
+    try {
+      input = Map<String, dynamic>.from(jsonDecode(text) as Map);
+    } catch (_) {
+      throw const AiException('The AI reply was cut off. Tap retry.', retryable: true);
+    }
+    final truncated = cand?['finishReason'] == 'MAX_TOKENS';
     final value = parse(input);
     if (ttl != null && !truncated) await cache.put(ck, feature, input, ttlDays: ttl);
     return AiResult(value, usage, truncated: truncated);
   }
 
-  Future<http.Response> _post(String key, String body, Duration timeout) async {
+  Future<http.Response> _post(String key, String model, String body, Duration timeout) async {
     for (var attempt = 0;; attempt++) {
       final res = await _http
           .post(
-            Uri.parse('https://api.anthropic.com/v1/messages'),
-            headers: {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            Uri.parse('$_base/$model:generateContent'),
+            headers: {'x-goog-api-key': key, 'content-type': 'application/json'},
             body: body,
           )
           .timeout(timeout);
       final code = res.statusCode;
       if (code == 200) return res;
-      if (code == 401) {
-        throw const AiException('Claude key rejected. Check it in Settings → AI.', keyRejected: true);
+      final bad = res.body.contains('API_KEY_INVALID') || res.body.contains('API key not valid');
+      if (code == 401 || code == 403 || (code == 400 && bad)) {
+        throw const AiException('Gemini key rejected. Check it in Settings → AI.', keyRejected: true);
       }
       if (code == 400 || code == 404) {
         await db.log('ai', 'AI request invalid ($code)', level: 'error', data: {'body': res.body.length > 500 ? res.body.substring(0, 500) : res.body});
         throw AiException(code == 404 ? 'Model not found. Check the model id in Settings → AI.' : 'AI request invalid.');
       }
-      if ((code == 429 || code == 529 || code >= 500) && attempt == 0) {
+      if ((code == 429 || code >= 500) && attempt == 0) {
         await _sleep(Duration(milliseconds: 2000 + _rng.nextInt(2000)));
         continue;
       }
-      throw AiException('Claude is busy ($code). Tap retry.', retryable: true);
+      throw AiException(code == 429 ? 'Free quota used up for now. Try again in a minute.' : 'The AI is busy ($code). Tap retry.', retryable: true);
     }
   }
 
@@ -194,25 +237,15 @@ class AiClient {
         cacheWriteTokens: Value(u.cacheWrite),
       ));
 
-  /// Cheapest possible call to validate a key/model (Haiku, max_tokens 1).
+  /// Validates key and model with a metadata GET: costs no tokens.
   Future<String?> testKey(String key, {String? model}) async {
+    final m = model ?? defaultModels['digest']!;
     try {
-      final res = await _http
-          .post(
-            Uri.parse('https://api.anthropic.com/v1/messages'),
-            headers: {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
-            body: jsonEncode({
-              'model': model ?? defaultModels['digest'],
-              'max_tokens': 1,
-              'messages': [
-                {'role': 'user', 'content': 'hi'}
-              ],
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
+      final res = await _http.get(Uri.parse('$_base/$m'), headers: {'x-goog-api-key': key}).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) return null;
-      if (res.statusCode == 401) return 'Claude key rejected.';
-      if (res.statusCode == 404) return 'Model id rejected: ${model ?? defaultModels['digest']}.';
+      if (res.statusCode == 404) return 'Model id rejected: $m.';
+      if (res.statusCode == 429) return 'Rate limited. Key looks fine, try again in a minute.';
+      if (res.statusCode == 400 || res.statusCode == 401 || res.statusCode == 403) return 'Gemini key rejected.';
       return 'Error ${res.statusCode}: ${res.body.length > 160 ? res.body.substring(0, 160) : res.body}';
     } catch (_) {
       return 'No internet.';

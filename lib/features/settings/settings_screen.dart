@@ -48,7 +48,7 @@ class _S extends ConsumerState<SettingsScreen> {
     for (final e in defaultModels.entries) {
       _models[e.key] = TextEditingController(text: (await db.getSetting<String>('ai.model.${e.key}')) ?? e.value);
     }
-    _hasKey = (await ref.read(secretsProvider).claudeKey())?.isNotEmpty == true;
+    _hasKey = (await ref.read(secretsProvider).aiKey())?.isNotEmpty == true;
     if (mounted) setState(() => _loaded = true);
   }
 
@@ -57,7 +57,7 @@ class _S extends ConsumerState<SettingsScreen> {
     setState(() { _testing = true; _msg = null; });
     final err = await ref.read(aiClientProvider).testKey(k);
     if (err == null) {
-      await ref.read(secretsProvider).setClaudeKey(k);
+      await ref.read(secretsProvider).setAiKey(k);
       _key.clear();
       _hasKey = true;
       ref.invalidate(aiReadyProvider);
@@ -66,7 +66,7 @@ class _S extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _testModel(String feature) async {
-    final k = await ref.read(secretsProvider).claudeKey();
+    final k = await ref.read(secretsProvider).aiKey();
     if (k == null) return setState(() => _msg = 'Add a key first.');
     final model = _models[feature]!.text.trim();
     final err = await ref.read(aiClientProvider).testKey(k, model: model);
@@ -97,11 +97,11 @@ class _S extends ConsumerState<SettingsScreen> {
           Row(children: [Expanded(child: Text('AI off', style: t.titleMedium)), ClaySwitch(value: off, onChanged: (v) async { await db.setSetting('ai.off', v); ref.invalidate(aiReadyProvider); })]),
           Text('When off: local scoring only, no AI buttons, numbers-only weekly review.', style: t.bodySmall),
           const SizedBox(height: 14),
-          ClayTextField(label: _hasKey ? 'Claude API key (saved, enter new to replace)' : 'Claude API key', controller: _key, obscure: true, hint: _hasKey ? '••••••••••••' : 'sk-ant-…', onChanged: (_) => setState(() {})),
+          ClayTextField(label: _hasKey ? 'Gemini API key (saved, enter new to replace)' : 'Gemini API key', controller: _key, obscure: true, hint: _hasKey ? '••••••••••••' : 'AIza…', onChanged: (_) => setState(() {})),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: ClayButton('Test & save key', kind: ClayButtonKind.soft, busy: _testing, onPressed: _key.text.trim().isEmpty ? null : _saveKey)),
-            if (_hasKey) ...[const SizedBox(width: 10), Expanded(child: ClayButton('Remove', kind: ClayButtonKind.danger, onPressed: () async { await ref.read(secretsProvider).setClaudeKey(null); setState(() => _hasKey = false); ref.invalidate(aiReadyProvider); }))],
+            if (_hasKey) ...[const SizedBox(width: 10), Expanded(child: ClayButton('Remove', kind: ClayButtonKind.danger, onPressed: () async { await ref.read(secretsProvider).setAiKey(null); setState(() => _hasKey = false); ref.invalidate(aiReadyProvider); }))],
           ]),
           if (_msg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_msg!, style: TextStyle(fontWeight: FontWeight.w700, color: _msg!.contains('works') || _msg!.contains('saved') ? c.mint : c.rose))),
         ]),

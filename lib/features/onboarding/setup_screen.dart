@@ -47,7 +47,7 @@ class _S extends ConsumerState<SetupScreen> with WidgetsBindingObserver {
     }
 
     final rows = <(String, String, bool, VoidCallback, String?)>[
-      ('Claude API key', 'Optional. The app works without AI.', aiReady, () => context.push('/settings'), null),
+      ('Gemini API key', 'Optional. The app works without AI.', aiReady, () => context.push('/settings'), null),
       ('Notifications', 'Reminders and nudges', st.notifications, () => runtime(Permission.notification), null),
       ('Exact alarms', 'Wake alarm and reminders on the minute', st.exactAlarm, () => bridge.open('exact_alarm'), null),
       ('Full-screen alerts', 'Wake screen over the lock screen', st.fullScreenIntent, () => bridge.open('full_screen_intent'), null),

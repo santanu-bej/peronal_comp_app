@@ -42,7 +42,7 @@ class _S extends ConsumerState<OnboardingScreen> {
     setState(() { _testing = true; _keyMsg = null; });
     final err = await ref.read(aiClientProvider).testKey(_key.text.trim());
     if (err == null) {
-      await ref.read(secretsProvider).setClaudeKey(_key.text.trim());
+      await ref.read(secretsProvider).setAiKey(_key.text.trim());
       await ref.read(dbProvider).setSetting('ai.off', false);
       ref.invalidate(aiReadyProvider);
     }
@@ -69,11 +69,11 @@ class _S extends ConsumerState<OnboardingScreen> {
         ]);
       case 1:
         body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('Claude API key', style: t.headlineLarge),
+          Text('Gemini API key', style: t.headlineLarge),
           const SizedBox(height: 8),
-          Text('Used only for planning, scoring odd todos and the weekly review. Stored encrypted on this phone.', style: t.bodyLarge?.copyWith(color: c.inkMuted)),
+          Text('Free key from Google AI Studio. Used only for planning, scoring odd todos and the weekly review. Stored encrypted on this phone.', style: t.bodyLarge?.copyWith(color: c.inkMuted)),
           const SizedBox(height: 24),
-          ClayTextField(label: 'API key', controller: _key, obscure: true, hint: 'sk-ant-…'),
+          ClayTextField(label: 'API key', controller: _key, obscure: true, hint: 'AIza…'),
           if (_keyMsg != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_keyMsg!, style: TextStyle(color: _keyOk ? c.mint : c.rose, fontWeight: FontWeight.w700))),
           const SizedBox(height: 16),
           ClayButton('Test key', kind: ClayButtonKind.soft, busy: _testing, onPressed: _key.text.trim().isEmpty ? null : _testKey),

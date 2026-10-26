@@ -13,8 +13,8 @@ class Secrets {
     }
   }
 
-  Future<String?> claudeKey() => _read('claude_key');
-  Future<void> setClaudeKey(String? v) => v == null || v.isEmpty ? _s.delete(key: 'claude_key') : _s.write(key: 'claude_key', value: v.trim());
+  Future<String?> aiKey() => _read('ai_key');
+  Future<void> setAiKey(String? v) => v == null || v.isEmpty ? _s.delete(key: 'ai_key') : _s.write(key: 'ai_key', value: v.trim());
   Future<String?> whatsappToken() => _read('wa_token');
   Future<void> setWhatsappToken(String? v) => v == null || v.isEmpty ? _s.delete(key: 'wa_token') : _s.write(key: 'wa_token', value: v.trim());
   Future<String?> backupKey() => _read('snapshot_key');
